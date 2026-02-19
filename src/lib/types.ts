@@ -15,6 +15,11 @@ export interface Creator {
     contentTypes?: string[];
     avgViews?: number;
     maxViews?: number;
+    avgLikes?: number;
+    avgComments?: number;
+    avgShares?: number;
+    avgSaves?: number;
+    avgEngagement?: number;
 }
 
 export interface TrackingConfig {

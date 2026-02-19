@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronDown, TrendingUp, Instagram, Youtube, Eye, Heart } from 'lucide-react';
+import { ChevronDown, TrendingUp, Instagram, Youtube, Eye, Heart, Search, X, ExternalLink } from 'lucide-react';
 import { api, MOCK_SUMMARY, MOCK_DAILY_DATA, MOCK_CREATORS, MOCK_CONTENTS } from '../lib/api';
 import type { TrackingConfig } from '../lib/types';
 import { MetricCard } from '../components/MetricCard';
+import { MultiSelectDropdown } from '../components/MultiSelectDropdown';
 import { Bar, Line, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell } from 'recharts';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -28,6 +29,11 @@ export function TrackingDetail() {
     const [chartContentTypes, setChartContentTypes] = useState<string[]>([]);
     const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
     const [startDate, endDate] = dateRange;
+    const [showRisingModal, setShowRisingModal] = useState(false);
+    const [selectedCreators, setSelectedCreators] = useState<string[]>([]);
+    const [followerMin, setFollowerMin] = useState<number | ''>('');
+    const [followerMax, setFollowerMax] = useState<number | ''>('');
+    const [creatorViewMode, setCreatorViewMode] = useState<'avg' | 'sum'>('avg');
 
     const [contentPage, setContentPage] = useState(1);
     const [creatorPage, setCreatorPage] = useState(1);
@@ -48,6 +54,13 @@ export function TrackingDetail() {
             .sort((a, b) => (b[metricKey as keyof typeof b] as number) - (a[metricKey as keyof typeof a] as number))
             .slice(0, 10);
     }, [contents, chartMetric]);
+
+    // Rising contents: top risingContentCount by views (급상승 = 조회수 증가율 높은 순, mock에서는 상위 N개)
+    const risingContents = useMemo(() => {
+        return [...contents]
+            .sort((a, b) => b.views - a.views)
+            .slice(0, summary.risingContentCount);
+    }, [contents, summary.risingContentCount]);
 
     // Calculate content type breakdown
     const contentTypeStats = useMemo(() => {
@@ -81,28 +94,49 @@ export function TrackingDetail() {
     const periodOptions = ['전체 기간', '최근 7일', '최근 14일', '최근 30일'];
 
     const creatorSortOptions = [
-        '평균 조회수 높은 순',
-        '최고 조회 수 높은 순',
+        '조회 많은 순',
+        '좋아요 많은 순',
+        '댓글 많은 순',
+        '공유 많은 순',
+        '저장 많은 순',
+        '인게이지먼트 많은 순',
         '업로드 콘텐츠 많은 순',
+        '팔로워 많은 순',
     ];
+
+    // Metric sorts that support avg/sum toggle
+    const metricSorts = ['조회 많은 순', '좋아요 많은 순', '댓글 많은 순', '저장 많은 순', '공유 많은 순', '인게이지먼트 많은 순'];
+
+    // All account names (union of content creators and creator list)
+    const allCreatorNames = useMemo(() => {
+        const fromContents = new Set(contents.map(c => c.creator));
+        const fromCreators = new Set(creators.map(c => c.name));
+        return Array.from(new Set([...fromContents, ...fromCreators])).sort();
+    }, [contents, creators]);
 
     // Filter and Sort Contents
     const filteredAndSortedContents = useMemo(() => {
         let result = [...contents];
 
-        // Filter by Date
-        if (rankingPeriod === '최신순') {
-            // Logic for period... defaulting to all for now or mock
-        }
-
         // Filter by Content Type
         if (selectedContentTypes.length > 0) {
             result = result.filter(content => {
-                // Handle complex types mapping if needed
                 const type = content.type;
-                // Simple inclusion check
                 return selectedContentTypes.some(startType => type.includes(startType.split('(')[0]));
             });
+        }
+
+        // Filter by Creator
+        if (selectedCreators.length > 0) {
+            result = result.filter(content => selectedCreators.includes(content.creator));
+        }
+
+        // Filter by Follower range
+        if (followerMin !== '') {
+            result = result.filter(c => c.followers >= (followerMin as number));
+        }
+        if (followerMax !== '') {
+            result = result.filter(c => c.followers <= (followerMax as number));
         }
 
         // Sort
@@ -113,14 +147,14 @@ export function TrackingDetail() {
                 case '댓글 많은 순': return b.comments - a.comments;
                 case '저장 많은 순': return (b.saves || 0) - (a.saves || 0);
                 case '공유 많은 순': return (b.shares || 0) - (a.shares || 0);
-                case '업로드 최신순': return new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime(); // Note: Mock date format might need parsing if not ISO
+                case '업로드 최신순': return new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime();
                 case '업로드 오래된 순': return new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime();
                 default: return 0;
             }
         });
 
         return result;
-    }, [contents, contentSortBy, selectedContentTypes, rankingPeriod]);
+    }, [contents, contentSortBy, selectedContentTypes, selectedCreators, followerMin, followerMax]);
 
     // Paginated Contents
     const paginatedContents = useMemo(() => {
@@ -130,19 +164,58 @@ export function TrackingDetail() {
 
     const totalContentPages = Math.ceil(filteredAndSortedContents.length / ITEMS_PER_PAGE);
 
-    // Sort Creators
+    // Sort Creators (with optional filter)
     const sortedCreators = useMemo(() => {
         let result = [...creators];
+
+        // Filter by creator name
+        if (selectedCreators.length > 0) {
+            result = result.filter(c => selectedCreators.includes(c.name));
+        }
+
+        // Filter by content type (creator has matching content type)
+        if (selectedContentTypes.length > 0) {
+            result = result.filter(c =>
+                c.contentTypes?.some(ct =>
+                    selectedContentTypes.some(st => ct.includes(st.split('(')[0]) || st.includes(ct))
+                )
+            );
+        }
+
+        // Filter by follower range
+        if (followerMin !== '') {
+            result = result.filter(c => c.followers >= (followerMin as number));
+        }
+        if (followerMax !== '') {
+            result = result.filter(c => c.followers <= (followerMax as number));
+        }
+
+        const getMetricValue = (c: typeof creators[0], sort: string) => {
+            const count = c.contentCount || 1;
+            const v = (avg: number | undefined) => creatorViewMode === 'avg' ? (avg || 0) : (avg || 0) * count;
+            switch (sort) {
+                case '조회 많은 순': return v(c.avgViews);
+                case '좋아요 많은 순': return v(c.avgLikes);
+                case '댓글 많은 순': return v(c.avgComments);
+                case '저장 많은 순': return v(c.avgSaves);
+                case '공유 많은 순': return v(c.avgShares);
+                case '인게이지먼트 많은 순': return v(c.avgEngagement);
+                default: return 0;
+            }
+        };
+
         result.sort((a, b) => {
+            if (metricSorts.includes(creatorSortBy)) {
+                return getMetricValue(b, creatorSortBy) - getMetricValue(a, creatorSortBy);
+            }
             switch (creatorSortBy) {
-                case '평균 조회수 높은 순': return (b.avgViews || 0) - (a.avgViews || 0);
-                case '최고 조회 수 높은 순': return (b.maxViews || 0) - (a.maxViews || 0);
                 case '업로드 콘텐츠 많은 순': return (b.contentCount || 0) - (a.contentCount || 0);
+                case '팔로워 많은 순': return b.followers - a.followers;
                 default: return 0;
             }
         });
         return result;
-    }, [creators, creatorSortBy]);
+    }, [creators, creatorSortBy, selectedCreators, selectedContentTypes, followerMin, followerMax, creatorViewMode, metricSorts]);
 
     // Paginated Creators
     const paginatedCreators = useMemo(() => {
@@ -354,8 +427,14 @@ export function TrackingDetail() {
                         <p className="text-xs text-gray-500 mb-1">콘텐츠 수</p>
                         <p className="text-2xl font-bold text-gray-900">{summary.contentCount}<span className="text-sm font-normal">개</span></p>
                     </div>
-                    <div className="text-center p-4 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500 mb-1">급상승 콘텐츠 수</p>
+                    <div
+                        className="text-center p-4 bg-gray-50 rounded-lg cursor-pointer hover:bg-green-50 transition-colors group relative"
+                        onClick={() => setShowRisingModal(true)}
+                    >
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                            <p className="text-xs text-gray-500">급상승 콘텐츠 수</p>
+                            <Search className="h-3.5 w-3.5 text-gray-400 group-hover:text-green-600 transition-colors" />
+                        </div>
                         <div className="flex items-center justify-center gap-1">
                             <TrendingUp className="h-4 w-4 text-green-500" />
                             <p className="text-2xl font-bold text-gray-900">{summary.risingContentCount}<span className="text-sm font-normal">개</span></p>
@@ -704,6 +783,91 @@ export function TrackingDetail() {
 
             {/* 랭킹 Section with Tabs */}
             <section className="bg-white rounded-lg border p-6">
+                {/* ────────────────────────────────────────────
+                    공통 필터 (탭 위)
+                ──────────────────────────────────────────── */}
+                <div className="mb-6 space-y-3">
+                    <h2 className="text-base font-bold text-gray-900">콘텐츠 랭킹 / 크리에이터 랭킹</h2>
+                    <p className="text-xs text-gray-500">발행된 콘텐츠와 크리에이터 랭킹을 한 눈에 볼 수 있습니다.</p>
+
+                    {/* Row 1: 기간 + 콘텐츠 유형 */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 whitespace-nowrap">기간</span>
+                            <select
+                                value={rankingPeriod}
+                                onChange={(e) => { setRankingPeriod(e.target.value); setContentPage(1); setCreatorPage(1); }}
+                                className="px-3 py-1.5 text-xs border rounded-lg bg-white"
+                            >
+                                {periodOptions.map((opt) => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="w-px h-4 bg-gray-200" />
+
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-gray-500 whitespace-nowrap">콘텐츠 유형</span>
+                            {contentTypeOptions.slice(1).map((type) => (
+                                <button
+                                    key={type}
+                                    onClick={() => {
+                                        setSelectedContentTypes(prev =>
+                                            prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+                                        );
+                                        setContentPage(1); setCreatorPage(1);
+                                    }}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${selectedContentTypes.includes(type)
+                                        ? 'bg-gray-900 text-white border-gray-900'
+                                        : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                                        }`}
+                                >
+                                    {type.includes('인스타그램') ? type.replace('인스타그램 ', '') : type.replace('유튜브 ', '')}
+                                </button>
+                            ))}
+                            {selectedContentTypes.length > 0 && (
+                                <button onClick={() => setSelectedContentTypes([])} className="text-xs text-gray-400 hover:text-gray-600">초기화</button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Row 2: 팔로워 수 + 계정/채널 */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 whitespace-nowrap">팔로워 수</span>
+                            <input
+                                type="number"
+                                placeholder="최솟값"
+                                value={followerMin}
+                                onChange={(e) => { setFollowerMin(e.target.value === '' ? '' : Number(e.target.value)); setContentPage(1); setCreatorPage(1); }}
+                                className="w-28 px-2.5 py-1.5 text-xs border rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
+                            />
+                            <span className="text-xs text-gray-400">~</span>
+                            <input
+                                type="number"
+                                placeholder="최댓값"
+                                value={followerMax}
+                                onChange={(e) => { setFollowerMax(e.target.value === '' ? '' : Number(e.target.value)); setContentPage(1); setCreatorPage(1); }}
+                                className="w-28 px-2.5 py-1.5 text-xs border rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
+                            />
+                            {(followerMin !== '' || followerMax !== '') && (
+                                <button onClick={() => { setFollowerMin(''); setFollowerMax(''); }} className="text-xs text-gray-400 hover:text-gray-600">초기화</button>
+                            )}
+                        </div>
+
+                        <div className="w-px h-4 bg-gray-200" />
+
+                        <MultiSelectDropdown
+                            label="계정/채널"
+                            options={allCreatorNames}
+                            selected={selectedCreators}
+                            onChange={(v) => { setSelectedCreators(v); setContentPage(1); setCreatorPage(1); }}
+                        />
+                    </div>
+                </div>
+
+                {/* 탭 헤더 */}
                 <div className="border-b mb-6">
                     <div className="flex gap-6">
                         <button
@@ -727,60 +891,20 @@ export function TrackingDetail() {
                     </div>
                 </div>
 
-                {/* 콘텐츠 랭킹 Content */}
+                {/* 콘텐츠 랭킹 탭 */}
                 {activeRankingTab === 'content' && (
                     <div>
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-sm font-medium text-gray-700">전체 콘텐츠 랭킹 Top {filteredAndSortedContents.length}</h3>
-                            <div className="flex gap-2">
-                                <select
-                                    value={rankingPeriod}
-                                    onChange={(e) => setRankingPeriod(e.target.value)}
-                                    className="px-3 py-1.5 text-xs border rounded-md bg-white"
-                                >
-                                    {periodOptions.map((opt) => (
-                                        <option key={opt} value={opt}>{opt}</option>
-                                    ))}
-                                </select>
-                                <select
-                                    value={contentSortBy}
-                                    onChange={(e) => setContentSortBy(e.target.value)}
-                                    className="px-3 py-1.5 text-xs border rounded-md bg-white"
-                                >
-                                    {contentSortOptions.map((opt) => (
-                                        <option key={opt} value={opt}>{opt}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                        {/* Content Type Multi-Select Toggles */}
-                        <div className="flex flex-wrap gap-2 mb-4">
-                            {contentTypeOptions.slice(1).map((type) => (
-                                <button
-                                    key={type}
-                                    onClick={() => {
-                                        setSelectedContentTypes(prev =>
-                                            prev.includes(type)
-                                                ? prev.filter(t => t !== type)
-                                                : [...prev, type]
-                                        );
-                                    }}
-                                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${selectedContentTypes.includes(type)
-                                        ? 'bg-gray-900 text-white border-gray-900'
-                                        : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
-                                        }`}
-                                >
-                                    {type.includes('인스타그램') ? type.replace('인스타그램 ', '') : type.replace('유튜브 ', '')}
-                                </button>
-                            ))}
-                            {selectedContentTypes.length > 0 && (
-                                <button
-                                    onClick={() => setSelectedContentTypes([])}
-                                    className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
-                                >
-                                    초기화
-                                </button>
-                            )}
+                            <select
+                                value={contentSortBy}
+                                onChange={(e) => setContentSortBy(e.target.value)}
+                                className="px-3 py-1.5 text-xs border rounded-md bg-white"
+                            >
+                                {contentSortOptions.map((opt) => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                            </select>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
@@ -808,16 +932,10 @@ export function TrackingDetail() {
                                             </td>
                                             <td className="px-3 py-3">
                                                 <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
-                                                    <img
-                                                        src={content.thumbnail}
-                                                        alt="썸네일"
-                                                        className="w-full h-full object-cover"
-                                                    />
+                                                    <img src={content.thumbnail} alt="썸네일" className="w-full h-full object-cover" />
                                                 </div>
                                             </td>
-                                            <td className="px-3 py-3">
-                                                {getContentTypeBadge(content.type)}
-                                            </td>
+                                            <td className="px-3 py-3">{getContentTypeBadge(content.type)}</td>
                                             <td className="px-3 py-3 relative">
                                                 <div
                                                     className="max-w-[200px] truncate text-gray-700 cursor-help"
@@ -832,9 +950,7 @@ export function TrackingDetail() {
                                                     </div>
                                                 )}
                                             </td>
-                                            <td className="px-3 py-3 text-gray-600 text-xs">
-                                                {content.uploadDate}
-                                            </td>
+                                            <td className="px-3 py-3 text-gray-600 text-xs">{content.uploadDate}</td>
                                             <td className="px-3 py-3">
                                                 <div className="flex items-center gap-2">
                                                     <div className="h-7 w-7 rounded-full bg-gradient-to-br from-pink-300 to-orange-200 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
@@ -843,63 +959,48 @@ export function TrackingDetail() {
                                                     <span className="text-gray-900 text-xs font-medium truncate">{content.creator}</span>
                                                 </div>
                                             </td>
-                                            <td className="px-3 py-3 text-right text-gray-900 text-xs">
-                                                {content.followers.toLocaleString()}
-                                            </td>
-                                            <td className="px-3 py-3 text-right text-gray-900 text-xs font-medium">
-                                                {content.views.toLocaleString()}
-                                            </td>
-                                            <td className="px-3 py-3 text-right text-gray-900 text-xs">
-                                                {content.likes.toLocaleString()}
-                                            </td>
-                                            <td className="px-3 py-3 text-right text-gray-600 text-xs">
-                                                {content.comments.toLocaleString()}
-                                            </td>
-                                            <td className="px-3 py-3 text-right text-gray-600 text-xs">
-                                                {content.shares.toLocaleString()}
-                                            </td>
-                                            <td className="px-3 py-3 text-right text-gray-600 text-xs">
-                                                {content.saves.toLocaleString()}
-                                            </td>
+                                            <td className="px-3 py-3 text-right text-gray-900 text-xs">{content.followers.toLocaleString()}</td>
+                                            <td className="px-3 py-3 text-right text-gray-900 text-xs font-medium">{content.views.toLocaleString()}</td>
+                                            <td className="px-3 py-3 text-right text-gray-900 text-xs">{content.likes.toLocaleString()}</td>
+                                            <td className="px-3 py-3 text-right text-gray-600 text-xs">{content.comments.toLocaleString()}</td>
+                                            <td className="px-3 py-3 text-right text-gray-600 text-xs">{content.shares.toLocaleString()}</td>
+                                            <td className="px-3 py-3 text-right text-gray-600 text-xs">{content.saves.toLocaleString()}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
-                        {/* Pagination Controls */}
                         {totalContentPages > 1 && (
                             <div className="flex justify-center mt-6 gap-2">
-                                <button
-                                    onClick={() => setContentPage(p => Math.max(1, p - 1))}
-                                    disabled={contentPage === 1}
-                                    className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50"
-                                >
-                                    이전
-                                </button>
-                                <span className="px-3 py-1 text-sm flex items-center">
-                                    {contentPage} / {totalContentPages}
-                                </span>
-                                <button
-                                    onClick={() => setContentPage(p => Math.min(totalContentPages, p + 1))}
-                                    disabled={contentPage === totalContentPages}
-                                    className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50"
-                                >
-                                    다음
-                                </button>
+                                <button onClick={() => setContentPage(p => Math.max(1, p - 1))} disabled={contentPage === 1} className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50">이전</button>
+                                <span className="px-3 py-1 text-sm flex items-center">{contentPage} / {totalContentPages}</span>
+                                <button onClick={() => setContentPage(p => Math.min(totalContentPages, p + 1))} disabled={contentPage === totalContentPages} className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50">다음</button>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* 크리에이터 랭킹 Content */}
+                {/* 크리에이터 랭킹 탭 */}
                 {activeRankingTab === 'creator' && (
                     <div>
-
-                        {/* 크리에이터 기간별 랭킹 */}
-                        {/* 크리에이터 기간별 랭킹 */}
-                        <div>
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-medium text-gray-700">전체 크리에이터 랭킹 Top {sortedCreators.length}</h3>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-medium text-gray-700">전체 크리에이터 랭킹 Top {sortedCreators.length}</h3>
+                            <div className="flex items-center gap-2">
+                                {/* 평균/합산 토글 — 항상 표시 */}
+                                <div className="flex bg-gray-100 p-0.5 rounded-lg">
+                                    <button
+                                        onClick={() => setCreatorViewMode('avg')}
+                                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${creatorViewMode === 'avg' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                    >
+                                        평균
+                                    </button>
+                                    <button
+                                        onClick={() => setCreatorViewMode('sum')}
+                                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${creatorViewMode === 'sum' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                    >
+                                        합산
+                                    </button>
+                                </div>
                                 <select
                                     value={creatorSortBy}
                                     onChange={(e) => setCreatorSortBy(e.target.value)}
@@ -910,91 +1011,195 @@ export function TrackingDetail() {
                                     ))}
                                 </select>
                             </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-500">
-                                        <tr>
-                                            <th className="px-4 py-3 text-center font-medium w-16">순위</th>
-                                            <th className="px-4 py-3 text-left font-medium w-64">계정/채널</th>
-                                            <th className="px-4 py-3 text-right font-medium">팔로워 수</th>
-                                            <th className="px-4 py-3 text-right font-medium">콘텐츠 수</th>
-                                            <th className="px-4 py-3 text-left font-medium">콘텐츠 유형</th>
-                                            <th className="px-4 py-3 text-right font-medium">평균 조회 수</th>
-                                            <th className="px-4 py-3 text-right font-medium">최고 조회 수</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {paginatedCreators.map((creator, index) => (
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead className="bg-gray-50 text-gray-500">
+                                    <tr>
+                                        <th className="px-3 py-3 text-center font-medium w-12">순위</th>
+                                        <th className="px-3 py-3 text-left font-medium min-w-[200px]">계정/채널</th>
+                                        <th className="px-3 py-3 text-right font-medium w-20">팔로워</th>
+                                        <th className="px-3 py-3 text-right font-medium w-16">콘텐츠</th>
+                                        <th className="px-3 py-3 text-left font-medium w-24">유형</th>
+                                        <th className="px-3 py-3 text-right font-medium w-24">
+                                            {creatorViewMode === 'avg' ? '평균 ' : '합산 '}조회
+                                        </th>
+                                        <th className="px-3 py-3 text-right font-medium w-24">
+                                            {creatorViewMode === 'avg' ? '평균 ' : '합산 '}좋아요
+                                        </th>
+                                        <th className="px-3 py-3 text-right font-medium w-20">
+                                            {creatorViewMode === 'avg' ? '평균 ' : '합산 '}댓글
+                                        </th>
+                                        <th className="px-3 py-3 text-right font-medium w-20">
+                                            {creatorViewMode === 'avg' ? '평균 ' : '합산 '}공유
+                                        </th>
+                                        <th className="px-3 py-3 text-right font-medium w-20">
+                                            {creatorViewMode === 'avg' ? '평균 ' : '합산 '}저장
+                                        </th>
+                                        <th className="px-3 py-3 text-right font-medium w-28">
+                                            {creatorViewMode === 'avg' ? '평균 ' : '합산 '}인게이지먼트
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {paginatedCreators.map((creator, index) => {
+                                        const cnt = creator.contentCount || 1;
+                                        const val = (avg: number | undefined) =>
+                                            creatorViewMode === 'avg' ? (avg ?? 0) : Math.round((avg ?? 0) * cnt);
+                                        return (
                                             <tr key={creator.id} className="hover:bg-gray-50">
-                                                <td className="px-4 py-3 text-center text-gray-500 font-medium">
+                                                <td className="px-3 py-3 text-center text-gray-500 font-medium">
                                                     {(creatorPage - 1) * ITEMS_PER_PAGE + index + 1}
                                                 </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-3">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-pink-300 to-orange-200 flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
+                                                        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-pink-300 to-orange-200 flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
                                                             {creator.name.charAt(0).toUpperCase()}
                                                         </div>
                                                         <div className="min-w-0">
                                                             <div className="flex items-center gap-1.5">
-                                                                <span className="font-medium text-gray-900">{creator.name}</span>
+                                                                <span className="font-medium text-gray-900 text-xs">{creator.name}</span>
                                                                 {getPlatformIcon(creator.platform)}
                                                             </div>
-                                                            <p className="text-xs text-gray-500 truncate">{creator.nickname || `@${creator.name}`}</p>
+                                                            <p className="text-xs text-gray-400 truncate">{creator.nickname} {creator.handle}</p>
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 text-right text-gray-900">
-                                                    {creator.followers.toLocaleString()}
-                                                </td>
-                                                <td className="px-4 py-3 text-right text-gray-900">
-                                                    {creator.contentCount}
-                                                </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-3 text-right text-gray-900 text-xs">{creator.followers.toLocaleString()}</td>
+                                                <td className="px-3 py-3 text-right text-gray-900 text-xs">{creator.contentCount}</td>
+                                                <td className="px-3 py-3">
                                                     <div className="flex flex-wrap gap-1">
                                                         {creator.contentTypes?.map((type, i) => (
-                                                            <span key={i} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
-                                                                {type}
-                                                            </span>
+                                                            <span key={i} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">{type}</span>
                                                         ))}
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 text-right text-gray-900">
-                                                    {(creator.avgViews ?? 0).toLocaleString()}
-                                                </td>
-                                                <td className="px-4 py-3 text-right text-gray-900 font-medium">
-                                                    {(creator.maxViews ?? 0).toLocaleString()}
-                                                </td>
+                                                <td className="px-3 py-3 text-right text-gray-900 text-xs font-medium">{val(creator.avgViews).toLocaleString()}</td>
+                                                <td className="px-3 py-3 text-right text-gray-900 text-xs">{val(creator.avgLikes).toLocaleString()}</td>
+                                                <td className="px-3 py-3 text-right text-gray-600 text-xs">{val(creator.avgComments).toLocaleString()}</td>
+                                                <td className="px-3 py-3 text-right text-gray-600 text-xs">{val(creator.avgShares).toLocaleString()}</td>
+                                                <td className="px-3 py-3 text-right text-gray-600 text-xs">{val(creator.avgSaves).toLocaleString()}</td>
+                                                <td className="px-3 py-3 text-right text-gray-900 text-xs font-medium">{val(creator.avgEngagement).toLocaleString()}</td>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {/* Pagination Controls */}
-                            {totalCreatorPages > 1 && (
-                                <div className="flex justify-center mt-6 gap-2">
-                                    <button
-                                        onClick={() => setCreatorPage(p => Math.max(1, p - 1))}
-                                        disabled={creatorPage === 1}
-                                        className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50"
-                                    >
-                                        이전
-                                    </button>
-                                    <span className="px-3 py-1 text-sm flex items-center">
-                                        {creatorPage} / {totalCreatorPages}
-                                    </span>
-                                    <button
-                                        onClick={() => setCreatorPage(p => Math.min(totalCreatorPages, p + 1))}
-                                        disabled={creatorPage === totalCreatorPages}
-                                        className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50"
-                                    >
-                                        다음
-                                    </button>
-                                </div>
-                            )}
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
+                        {totalCreatorPages > 1 && (
+                            <div className="flex justify-center mt-6 gap-2">
+                                <button onClick={() => setCreatorPage(p => Math.max(1, p - 1))} disabled={creatorPage === 1} className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50">이전</button>
+                                <span className="px-3 py-1 text-sm flex items-center">{creatorPage} / {totalCreatorPages}</span>
+                                <button onClick={() => setCreatorPage(p => Math.min(totalCreatorPages, p + 1))} disabled={creatorPage === totalCreatorPages} className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50">다음</button>
+                            </div>
+                        )}
                     </div>
                 )}
-            </section >
+            </section>
+
+
+
+
+
+            {/* 급상승 콘텐츠 모달 */}
+            {
+                showRisingModal && (
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+                        onClick={() => setShowRisingModal(false)}
+                    >
+                        <div
+                            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Modal Header */}
+                            <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <TrendingUp className="h-5 w-5 text-green-500" />
+                                    <h2 className="text-base font-bold text-gray-900">급상승 콘텐츠</h2>
+                                    <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                                        {summary.risingContentCount}개
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={() => setShowRisingModal(false)}
+                                    className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                                >
+                                    <X className="h-5 w-5 text-gray-500" />
+                                </button>
+                            </div>
+
+                            {/* Modal Body */}
+                            <div className="overflow-y-auto flex-1 p-6">
+                                <p className="text-xs text-gray-500 mb-4">조회수를 기준으로 급상승한 콘텐츠 목록입니다.</p>
+                                <div className="space-y-3">
+                                    {risingContents.map((content, index) => (
+                                        <div
+                                            key={content.id}
+                                            className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 hover:border-green-200 hover:bg-green-50/40 transition-colors group cursor-pointer"
+                                            onClick={() => window.open(content.url, '_blank')}
+                                        >
+                                            {/* Rank */}
+                                            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold
+                                            ${index === 0 ? 'bg-yellow-400 text-yellow-900' :
+                                                    index === 1 ? 'bg-gray-300 text-gray-700' :
+                                                        'bg-orange-300 text-orange-900'}`}>
+                                                {index + 1}
+                                            </div>
+
+                                            {/* Thumbnail */}
+                                            <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-gray-100">
+                                                <img
+                                                    src={content.thumbnail}
+                                                    alt=""
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            </div>
+
+                                            {/* Info */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    {getPlatformIcon(content.type)}
+                                                    <span className="text-xs text-gray-500 font-medium">@{content.creator}</span>
+                                                    {getContentTypeBadge(content.type)}
+                                                </div>
+                                                <p className="text-sm text-gray-800 line-clamp-2 leading-snug mb-1.5">
+                                                    {content.description}
+                                                </p>
+                                                <p className="text-xs text-gray-400">{content.uploadDate}</p>
+                                            </div>
+
+                                            {/* Metrics */}
+                                            <div className="flex-shrink-0 text-right space-y-1.5">
+                                                <div className="flex items-center justify-end gap-1 text-gray-600">
+                                                    <Eye className="w-3.5 h-3.5" />
+                                                    <span className="text-xs font-semibold">
+                                                        {content.views >= 10000
+                                                            ? (content.views / 10000).toFixed(1) + '만'
+                                                            : content.views.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-end gap-1 text-gray-400">
+                                                    <Heart className="w-3.5 h-3.5" />
+                                                    <span className="text-xs">{content.likes.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex items-center justify-end gap-1 text-green-500">
+                                                    <TrendingUp className="w-3.5 h-3.5" />
+                                                    <span className="text-xs font-medium">급상승</span>
+                                                </div>
+                                            </div>
+
+                                            {/* External link icon */}
+                                            <ExternalLink className="flex-shrink-0 w-4 h-4 text-gray-300 group-hover:text-green-500 transition-colors" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </div >
     );
 }
