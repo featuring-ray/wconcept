@@ -52,8 +52,9 @@ export function TrackingDetail() {
     const highlightContents = useMemo(() => {
         const metricKey = chartMetric === '좋아요' ? 'likes' :
             chartMetric === '댓글' ? 'comments' :
-                chartMetric === '인게이지먼트' ? 'engagement' :
-                    'views';
+                chartMetric === '공유' ? 'shares' :
+                    chartMetric === '인게이지먼트' ? 'engagement' :
+                        'views';
         return [...contents]
             .sort((a, b) => (b[metricKey as keyof typeof b] as number) - (a[metricKey as keyof typeof a] as number))
             .slice(0, 10);
@@ -237,18 +238,20 @@ export function TrackingDetail() {
                 likes: acc.likes + (content.likes || 0),
                 comments: acc.comments + (content.comments || 0),
                 views: acc.views + (content.views || 0),
+                shares: acc.shares + (content.shares || 0),
                 engagement: acc.engagement + engagement
             };
-        }, { likes: 0, comments: 0, views: 0, engagement: 0 });
+        }, { likes: 0, comments: 0, views: 0, shares: 0, engagement: 0 });
     }, [contents]);
 
     // Calculate cumulative data
     const cumulativeData = useMemo(() => {
-        let cumViews = 0, cumLikes = 0, cumComments = 0, cumEngagement = 0, cumUploads = 0;
+        let cumViews = 0, cumLikes = 0, cumComments = 0, cumShares = 0, cumEngagement = 0, cumUploads = 0;
         return chartData.map(entry => {
             cumViews += entry.views;
             cumLikes += entry.likes;
             cumComments += entry.comments;
+            cumShares += entry.shares ?? 0;
             cumEngagement += entry.engagement;
             cumUploads += entry.uploads;
             return {
@@ -256,6 +259,7 @@ export function TrackingDetail() {
                 views: cumViews,
                 likes: cumLikes,
                 comments: cumComments,
+                shares: cumShares,
                 engagement: cumEngagement,
                 uploads: cumUploads,
             };
@@ -277,7 +281,8 @@ export function TrackingDetail() {
         const currentData = payload[0].payload;
         const metricKey = chartMetric === '좋아요' ? 'likes' :
             chartMetric === '댓글' ? 'comments' :
-                chartMetric === '인게이지먼트' ? 'engagement' : 'views';
+                chartMetric === '공유' ? 'shares' :
+                    chartMetric === '인게이지먼트' ? 'engagement' : 'views';
         const currentValue = currentData[metricKey];
 
         // Find previous day's data
@@ -491,10 +496,11 @@ export function TrackingDetail() {
                 {/* 평균 성과 */}
                 <div className="mt-8">
                     <h3 className="text-sm font-medium text-gray-700 mb-4">평균 성과</h3>
-                    <div className="grid grid-cols-4 gap-4">
+                    <div className="grid grid-cols-5 gap-4">
+                        <MetricCard label="평균 조회 수" value={summary.avgViews.toLocaleString()} unit="회" />
                         <MetricCard label="평균 좋아요 수" value={summary.avgLikes.toLocaleString()} unit="개" />
                         <MetricCard label="평균 댓글 수" value={summary.avgComments.toLocaleString()} unit="개" />
-                        <MetricCard label="평균 조회 수" value={summary.avgViews.toLocaleString()} unit="개" />
+                        <MetricCard label="평균 공유 수" value={summary.avgShares.toLocaleString()} unit="회" />
                         <MetricCard label="평균 인게이지먼트" value={summary.avgEngagement.toLocaleString()} unit="개" />
                     </div>
                 </div>
@@ -502,10 +508,11 @@ export function TrackingDetail() {
                 {/* 누적 성과 */}
                 <div className="mt-8">
                     <h3 className="text-sm font-medium text-gray-700 mb-4">누적 성과</h3>
-                    <div className="grid grid-cols-4 gap-4">
+                    <div className="grid grid-cols-5 gap-4">
+                        <MetricCard label="총 조회 수" value={totalStats.views.toLocaleString()} unit="회" />
                         <MetricCard label="총 좋아요 수" value={totalStats.likes.toLocaleString()} unit="개" />
                         <MetricCard label="총 댓글 수" value={totalStats.comments.toLocaleString()} unit="개" />
-                        <MetricCard label="총 조회 수" value={totalStats.views.toLocaleString()} unit="회" />
+                        <MetricCard label="총 공유 수" value={totalStats.shares.toLocaleString()} unit="회" />
                         <MetricCard label="총 인게이지먼트" value={totalStats.engagement.toLocaleString()} unit="개" />
                     </div>
                 </div>
@@ -635,7 +642,7 @@ export function TrackingDetail() {
 
                             {/* Metric Toggle */}
                             <div className="flex bg-gray-100 p-0.5 rounded-lg">
-                                {['조회수', '좋아요', '댓글'].map((label) => {
+                                {['조회수', '좋아요', '댓글', '공유'].map((label) => {
                                     const metricKey = label === '조회수' ? '조회 수' : label;
                                     return (
                                         <button
@@ -684,8 +691,9 @@ export function TrackingDetail() {
                                         dataKey={
                                             chartMetric === '좋아요' ? 'likes' :
                                                 chartMetric === '댓글' ? 'comments' :
-                                                    chartMetric === '인게이지먼트' ? 'engagement' :
-                                                        'views'
+                                                    chartMetric === '공유' ? 'shares' :
+                                                        chartMetric === '인게이지먼트' ? 'engagement' :
+                                                            'views'
                                         }
                                         stroke="#ff5452"
                                         strokeWidth={2}
@@ -722,8 +730,9 @@ export function TrackingDetail() {
                                         dataKey={
                                             chartMetric === '좋아요' ? 'likes' :
                                                 chartMetric === '댓글' ? 'comments' :
-                                                    chartMetric === '인게이지먼트' ? 'engagement' :
-                                                        'views'
+                                                    chartMetric === '공유' ? 'shares' :
+                                                        chartMetric === '인게이지먼트' ? 'engagement' :
+                                                            'views'
                                         }
                                         radius={[4, 4, 0, 0]}
                                         barSize={32}
@@ -1152,6 +1161,9 @@ export function TrackingDetail() {
                                         <th className="px-3 py-3 text-right font-medium w-20">
                                             {creatorViewMode === 'avg' ? '평균 ' : '누적 '}댓글
                                         </th>
+                                        <th className="px-3 py-3 text-right font-medium w-20">
+                                            {creatorViewMode === 'avg' ? '평균 ' : '누적 '}공유
+                                        </th>
                                         <th className="px-3 py-3 text-right font-medium w-28">
                                             {creatorViewMode === 'avg' ? '평균 ' : '누적 '}인게이지먼트
                                         </th>
@@ -1211,6 +1223,7 @@ export function TrackingDetail() {
                                                     <td className="px-3 py-3 text-right text-gray-900 text-xs font-medium">{val(creator.avgViews).toLocaleString()}</td>
                                                     <td className="px-3 py-3 text-right text-gray-900 text-xs">{val(creator.avgLikes).toLocaleString()}</td>
                                                     <td className="px-3 py-3 text-right text-gray-600 text-xs">{val(creator.avgComments).toLocaleString()}</td>
+                                                    <td className="px-3 py-3 text-right text-gray-600 text-xs">{val(creator.avgShares).toLocaleString()}</td>
                                                     <td className="px-3 py-3 text-right text-gray-900 text-xs font-medium">{val(creator.avgEngagement).toLocaleString()}</td>
                                                 </tr>
 
@@ -1262,6 +1275,10 @@ export function TrackingDetail() {
                                                                                     <span className="flex items-center gap-1 w-12 text-right justify-end">
                                                                                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
                                                                                         {content.comments.toLocaleString()}
+                                                                                    </span>
+                                                                                    <span className="flex items-center gap-1 w-12 text-right justify-end">
+                                                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                                                                                        {content.shares?.toLocaleString() ?? 0}
                                                                                     </span>
                                                                                 </div>
                                                                             </div>
@@ -1363,7 +1380,7 @@ export function TrackingDetail() {
                                             </div>
 
                                             {/* Metrics */}
-                                            <div className="flex-shrink-0 text-right space-y-1.5">
+                                            <div className="flex-shrink-0 text-right space-y-1.5 min-w-[48px]">
                                                 <div className="flex items-center justify-end gap-1 text-gray-600">
                                                     <Eye className="w-3.5 h-3.5" />
                                                     <span className="text-xs font-semibold">
@@ -1376,9 +1393,13 @@ export function TrackingDetail() {
                                                     <Heart className="w-3.5 h-3.5" />
                                                     <span className="text-xs">{content.likes.toLocaleString()}</span>
                                                 </div>
-                                                <div className="flex items-center justify-end gap-1 text-green-500">
-                                                    <TrendingUp className="w-3.5 h-3.5" />
-                                                    <span className="text-xs font-medium">급상승</span>
+                                                <div className="flex items-center justify-end gap-1 text-gray-400">
+                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                                                    <span className="text-xs">{content.comments.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex items-center justify-end gap-1 text-gray-400">
+                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                                                    <span className="text-xs">{content.shares?.toLocaleString() ?? 0}</span>
                                                 </div>
                                             </div>
 
