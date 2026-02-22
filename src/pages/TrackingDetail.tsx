@@ -581,7 +581,6 @@ export function TrackingDetail() {
                                         </button>
                                         {['인스타그램 피드', '인스타그램 릴스', '유튜브 영상(롱폼)', '유튜브 쇼츠'].map((type) => {
                                             const isSelected = chartContentTypes.includes(type);
-                                            const label = type.includes('릴스') ? '릴스' : type.includes('피드') ? '피드' : type.includes('쇼츠') ? '쇼츠' : '영상';
                                             return (
                                                 <button
                                                     key={type}
@@ -869,7 +868,6 @@ export function TrackingDetail() {
                                     </button>
                                     {contentTypeOptions.slice(1).map((type) => {
                                         const isSelected = selectedContentTypes.includes(type);
-                                        const label = type.includes('인스타그램') ? type.replace('인스타그램 ', '') : type.replace('유튜브 ', '');
                                         return (
                                             <button
                                                 key={type}
