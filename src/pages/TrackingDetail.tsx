@@ -972,7 +972,7 @@ export function TrackingDetail() {
                             </h3>
                         </div>
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
+                            <table className="w-full text-sm min-w-[1000px]">
                                 <thead className="bg-gray-50 text-gray-500 text-xs">
                                     <tr>
                                         {/* 전체 선택 체크박스 */}
@@ -1115,7 +1115,7 @@ export function TrackingDetail() {
                             </div>
                         </div>
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
+                            <table className="w-full text-sm min-w-[1000px]">
                                 <thead className="bg-gray-50 text-gray-500">
                                     <tr>
                                         <th className="px-3 py-3 text-center font-medium w-10"></th>
