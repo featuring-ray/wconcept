@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronDown, TrendingUp, Instagram, Youtube, Eye, Heart, Search, X, ExternalLink, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { ChevronDown, TrendingUp, Instagram, Youtube, Eye, Heart, Search, X, ExternalLink, ArrowUp, ArrowDown, ArrowUpDown, Download } from 'lucide-react';
 import { api, MOCK_SUMMARY, MOCK_DAILY_DATA, MOCK_CREATORS, MOCK_CONTENTS } from '../lib/api';
 import type { TrackingConfig } from '../lib/types';
 import { MetricCard } from '../components/MetricCard';
@@ -9,6 +9,7 @@ import { Bar, Line, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, C
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { ko } from 'date-fns/locale';
+import { downloadContentRankingExcel } from '../lib/utils';
 
 export function TrackingDetail() {
     const { id } = useParams();
@@ -984,6 +985,27 @@ export function TrackingDetail() {
                                     <span className="ml-2 text-xs text-blue-600 font-normal">{selectedContentIds.size}개 선택됨</span>
                                 )}
                             </h3>
+                            <button
+                                onClick={() => {
+                                    const creatorUrlMap = Object.fromEntries(
+                                        creators.map(c => [
+                                            c.name,
+                                            c.platform === '유튜브'
+                                                ? `https://youtube.com/${c.handle}`
+                                                : `https://instagram.com/${c.handle.replace('@', '')}`
+                                        ])
+                                    );
+                                    const enriched = contents.map(c => ({
+                                        ...c,
+                                        accountUrl: creatorUrlMap[c.creator] ?? '',
+                                    }));
+                                    downloadContentRankingExcel(enriched, tracking?.title ?? '');
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                            >
+                                <Download className="h-3.5 w-3.5" />
+                                엑셀 다운로드
+                            </button>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm min-w-[1000px]">
